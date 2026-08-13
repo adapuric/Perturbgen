@@ -1219,26 +1219,8 @@ def map_input_ids_to_row_id(
 
 
 def subset_adata(adata, cell_pairings):
-    adata_ = adata.copy()
-    # check if obs index is not range index
-    if adata_.obs.index.dtype != 'int64':
-        adata_.obs = adata_.obs.reset_index()
-    df = pd.DataFrame(
-        adata_.X.toarray(), index=adata_.obs.index, columns=adata_.var.index
-    )
-    # use row index instead of index
-    df.reset_index(drop=True, inplace=True)
-    subset_df = df.loc[cell_pairings]
-    adata_obs_subsetted = adata_.obs.loc[cell_pairings]
-    obs = adata_obs_subsetted
-    var = adata_.var.loc[df.columns]
-    adata_subsetted = ad.AnnData(
-        X=subset_df.values,
-        obs=obs,
-        var=var,
-    )
+    adata_subsetted = adata[cell_pairings, :].copy()
     adata_subsetted.obs_names.name = None
-    adata_subsetted.X = csr_matrix(adata_subsetted.X)
     return adata_subsetted
 
 
