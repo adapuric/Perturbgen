@@ -142,6 +142,10 @@ def get_args(argv):
     parser.add_argument('--shuffle', type=bool, default=False, help='shuffle')
     parser.add_argument('--num_node', type=int, default=1)
     parser.add_argument(
+        '--single_device', type=str2bool, default=False,
+        help='Run on a single GPU with a notebook-safe strategy (no DDP).',
+    )
+    parser.add_argument(
         '--log_dir', type=str, default='logs', help='path to data directory'
     )
     parser.add_argument(
@@ -579,6 +583,11 @@ def main(argv=None) -> None:
         test_kwargs['deg_pkl_path'] = args.deg_pkl_path
         test_kwargs['gene_embs_list'] = gene_embs_list
         test_kwargs['gene_embs_condition'] = args.gene_embs_condition
+        # Build uncompiled for inference: checkpoints are saved with torch.compile's
+        # '_orig_mod.' prefix stripped (on_save_checkpoint), so they only load
+        # cleanly into an uncompiled module under Lightning's strict ckpt_path load.
+        # (compile is a speed optimisation only; numerically identical.)
+        test_kwargs['compile_model'] = False
         pretrained_module = PerturbGenTrainer(**test_kwargs)
 
     elif args.test_mode == 'count':
@@ -646,8 +655,11 @@ def main(argv=None) -> None:
     )
     os.makedirs(os.path.join(os.getcwd(), log_path), exist_ok=True)
 
-    # The tensorboard logger allows for monitoring the progress of training
-    if torch.cuda.device_count() > 1:
+    # 'disabled' -> no logger: WandbLogger.experiment triggers wandb.init(), whose
+    # service startup hangs in a headless kernel even in mode='disabled'.
+    if args.wandb_mode == 'disabled':
+        wandb_logger = False
+    elif torch.cuda.device_count() > 1:
         # multi gpu training with group logging
         wandb_logger = WandbLogger(
             entity=args.wandb_entity,
@@ -678,14 +690,19 @@ def main(argv=None) -> None:
     # further information.
     # Lightning allows for simple multi-gpu training, gradient accumulation, half
     # precision training, etc. using the trainer class.
-    ddp_strategy = DDPStrategy(find_unused_parameters=False)
+    # single_device (in-process/notebook) or a single visible GPU -> notebook-safe
+    # 'auto' strategy; multi-process DDP can't launch inside a Jupyter kernel.
+    if getattr(args, 'single_device', False) or torch.cuda.device_count() <= 1:
+        devices, strategy = 1, 'auto'
+    else:
+        devices, strategy = -1, DDPStrategy(find_unused_parameters=False)
     trainer = pl.Trainer(
         logger=wandb_logger,
         callbacks=[TQDMProgressBar(refresh_rate=10)],
         accelerator=accelerator,
         num_nodes=args.num_node,
-        devices=-1 if torch.cuda.is_available() else 1,  # inference only on one gpu
-        strategy=ddp_strategy if torch.cuda.device_count() > 1 else 'auto',
+        devices=devices,
+        strategy=strategy,
     )
     # Finally, kick of the training process.
     if args.test_mode == 'masking':

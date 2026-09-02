@@ -58,6 +58,17 @@ def get_args(args=None):
         help='Mode for highly variable gene selection',
     )
     parser.add_argument(
+        '--hvg_flavor',
+        type=str,
+        default='seurat',
+        choices=['seurat', 'seurat_v3', 'cell_ranger'],
+        help=(
+            "scanpy highly_variable_genes flavor. 'seurat_v3' ranks on raw "
+            "counts (no normalize/log); 'seurat'/'cell_ranger' run on "
+            "normalize_total(1e4)+log1p."
+        ),
+    )
+    parser.add_argument(
         '--var_list',
         type=str,
         nargs='+',
@@ -231,9 +242,19 @@ def main(cli_args=None):
                 adata.layers['counts'] = adata.X.copy()
             else:
                 adata.X = adata.layers['counts'].copy()
-            sc.pp.normalize_total(adata, target_sum=1e4)
-            sc.pp.log1p(adata)
-            sc.pp.highly_variable_genes(adata, n_top_genes=args.n_hvg, batch_key=args.time_obs)
+            if args.hvg_flavor == 'seurat_v3':
+                # seurat_v3 ranks on raw counts (no normalize/log)
+                sc.pp.highly_variable_genes(
+                    adata, n_top_genes=args.n_hvg, flavor='seurat_v3',
+                    batch_key=args.time_obs,
+                )
+            else:
+                sc.pp.normalize_total(adata, target_sum=1e4)
+                sc.pp.log1p(adata)
+                sc.pp.highly_variable_genes(
+                    adata, n_top_genes=args.n_hvg, flavor=args.hvg_flavor,
+                    batch_key=args.time_obs,
+                )
             adata = adata[:, adata.var['highly_variable']].copy()
             adata.X = adata.layers['counts']  # need raw counts
 
@@ -321,13 +342,21 @@ def main(cli_args=None):
                 adata_subset.layers['counts'] = adata_subset.X.copy()
             else:
                 adata_subset.X = adata_subset.layers['counts'].copy()
-            sc.pp.normalize_total(adata_subset, target_sum=1e4)
-            sc.pp.log1p(adata_subset)
-            sc.pp.highly_variable_genes(
-                adata_subset,
-                n_top_genes=args.n_hvg,
-                batch_key=args.time_obs,
-            )
+            if args.hvg_flavor == 'seurat_v3':
+                # seurat_v3 ranks on raw counts (no normalize/log)
+                sc.pp.highly_variable_genes(
+                    adata_subset, n_top_genes=args.n_hvg, flavor='seurat_v3',
+                    batch_key=args.time_obs,
+                )
+            else:
+                sc.pp.normalize_total(adata_subset, target_sum=1e4)
+                sc.pp.log1p(adata_subset)
+                sc.pp.highly_variable_genes(
+                    adata_subset,
+                    n_top_genes=args.n_hvg,
+                    flavor=args.hvg_flavor,
+                    batch_key=args.time_obs,
+                )
             adata_subset.X = adata_subset.layers['counts']  # need raw counts
             if args.genes_to_include is not None:
                 adata_subset[:, adata_subset.var['gene_name'].isin(args.genes_to_include)].var[
