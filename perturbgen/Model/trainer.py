@@ -105,6 +105,7 @@ class PerturbGenTrainer(LightningModule):
         gene_embs_list: List[str] | None = None,
         gene_embs_condition: str | None = None,
         seed: int = 42,
+        compile_model: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -151,7 +152,7 @@ class PerturbGenTrainer(LightningModule):
             condition_dict=condition_dict,
             gene_to_rowid=self.gene_to_rowid,
             seed=seed,
-            compile_model=True,
+            compile_model=compile_model,
         )
         self.masking_loss = nn.CrossEntropyLoss()
         self.weight_decay = weight_decay

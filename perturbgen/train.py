@@ -144,6 +144,17 @@ def get_args(args=None):
     )
     parser.add_argument('--batch_size', type=int, default=64, help='batch_size')
     parser.add_argument('--num_node', type=int, default=1)
+    parser.add_argument(
+        '--single_device', type=str2bool, default=False,
+        help='Train on a single GPU with a notebook-safe strategy (no DDP/DeepSpeed). '
+             'Set by the in-process API; use batch scripts for multi-gpu.',
+    )
+    parser.add_argument(
+        '--compile', type=str2bool, default=True,
+        help='torch.compile the masking model. The API disables it (compilation '
+             'runs on CPU and can stall/deadlock inside a Jupyter kernel); '
+             'numerically identical either way.',
+    )
     parser.add_argument('--use_positional_encoding', type=str2bool, default=False)
     parser.add_argument('--layer_norm', type=str2bool, default=False)
     parser.add_argument('--shuffle', type=str2bool, default=True, help='shuffle')
@@ -481,6 +492,7 @@ def main(argv=None) -> None:
         trainer_kwargs['end_lr'] = args.cellgen_lr
         trainer_kwargs['weight_decay'] = args.cellgen_wd
         trainer_kwargs['context_mode'] = args.context_mode
+        trainer_kwargs['compile_model'] = args.compile
         pretrained_module = PerturbGenTrainer(**trainer_kwargs)
     elif args.train_mode == 'count':
         trainer_kwargs['ckpt_masking_path'] = args.ckpt_masking_path
@@ -594,18 +606,24 @@ def main(argv=None) -> None:
         mode=mode,
     )
     # The tensorboard logger allows for monitoring the progress of training
-    # Configure WandbLogger with unique name for each run
-    run_name = (
-        f'{run_id}_{str(uuid.uuid4())[:6]}' if torch.cuda.device_count() > 1 else run_id
-    )
-    wandb_logger = WandbLogger(
-        entity=args.wandb_entity,
-        project=args.wandb_project,
-        name=run_name,
-        save_dir=args.log_dir,
-        log_model=False,
-        mode=args.wandb_mode,
-    )
+    # Configure WandbLogger with unique name for each run.
+    # 'disabled' -> no logger at all: WandbLogger.experiment triggers wandb.init(),
+    # whose service startup hangs in a headless kernel even in mode='disabled'.
+    # logger=False skips it entirely (self.log/checkpointing still work).
+    if args.wandb_mode == 'disabled':
+        wandb_logger = False
+    else:
+        run_name = (
+            f'{run_id}_{str(uuid.uuid4())[:6]}' if torch.cuda.device_count() > 1 else run_id
+        )
+        wandb_logger = WandbLogger(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            name=run_name,
+            save_dir=args.log_dir,
+            log_model=False,
+            mode=args.wandb_mode,
+        )
 
     # In this simple example we just check if a GPU is available.
     # For training larger models in a distributed settings, this needs more care.
@@ -625,12 +643,23 @@ def main(argv=None) -> None:
     )
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
     print('Using device {}.'.format(accelerator))
+    parallel_comp_strategy = 'auto'
     if args.parallel_distribution == 'deepspeed':
         parallel_comp_strategy = DeepSpeedStrategy(
             stage=2,
         )
     elif args.parallel_distribution == 'ddp':
         parallel_comp_strategy = DDPStrategy(find_unused_parameters=False)
+
+    # single_device: run on ONE gpu with a notebook-safe strategy. Multi-process
+    # DDP/DeepSpeed can't launch inside an interactive Jupyter kernel, so the
+    # in-process API (pg.train_*) sets this; use the batch scripts for multi-gpu.
+    if args.single_device or torch.cuda.device_count() <= 1:
+        devices = 1
+        strategy = 'auto'
+    else:
+        devices = -1
+        strategy = parallel_comp_strategy
 
     trainer = pl.Trainer(
         logger=wandb_logger,
@@ -641,9 +670,9 @@ def main(argv=None) -> None:
         ],
         max_epochs=args.epochs,
         accelerator=accelerator,
-        devices=-1 if torch.cuda.is_available() else 1,
+        devices=devices,
         num_nodes=args.num_node,
-        strategy=parallel_comp_strategy if torch.cuda.device_count() > 1 else 'auto',
+        strategy=strategy,
     )
 
     if args.train_mode == 'masking':
@@ -676,6 +705,15 @@ def main(argv=None) -> None:
         trainer.fit(decoder_module, data_module)
     else:
         raise ValueError('train_mode not recognised, needs to be masking or count')
+
+    # Return the metric-best checkpoint (monitor = val/train perplexity for
+    # masking, mse for count) so callers can pick the right masking checkpoint
+    # for the count stage instead of guessing by epoch/filename.
+    return (
+        getattr(checkpoint_callback, 'best_model_path', '')
+        or getattr(checkpoint_callback, 'last_model_path', '')
+    )
+
 
 if __name__ == '__main__':
     main()
