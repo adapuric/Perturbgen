@@ -40,6 +40,7 @@ class PerturberTrainer(CountDecoderTrainer):
         batch_size: int = 16,
         use_size_factor: bool = True,
         use_observed_size_factor: bool = True,
+        count_gene_names: list[str] | None = None,
         *args,
         **kwargs,
     ):
@@ -47,6 +48,7 @@ class PerturberTrainer(CountDecoderTrainer):
 
         self.validation_mode = validation_mode
         self.pad_condition = pad_condition
+        self.count_gene_names = count_gene_names
         if validation_mode is not None:
             if perturbation_sequence is None:
                 raise ValueError(
@@ -697,4 +699,5 @@ class PerturberTrainer(CountDecoderTrainer):
                 f'_t{self.perturbation_mode}.h5ad'
             ),
             mode=self.validation_mode,
+            count_gene_names=self.count_gene_names,
         )

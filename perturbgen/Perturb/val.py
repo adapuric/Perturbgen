@@ -237,6 +237,7 @@ def main() -> None:
             n_total_tps=n_total_tps,
             conditions=conditions_,
             conditions_combined=conditions_combined_,
+            count_gene_names=tgt_adata_tmp.var_names.astype(str).tolist(),
             **config['trainer'],
         )
         data_module = PerturbGenDataModule(

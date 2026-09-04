@@ -877,6 +877,7 @@ def return_perturbation_adata(
     marker_genes: dict,
     file_name: str,
     mode: Literal['inference', 'generate'],
+    count_gene_names: list[str] | None = None,
     aggregate: bool = True,
 ) -> ad.AnnData:
     """
@@ -895,6 +896,8 @@ def return_perturbation_adata(
         Filename for output file
     mode: `Literal['inference', 'generation']`
         Mode of test_step.
+    count_gene_names: `list[str]`
+        Gene names in count-decoder output order.
     Returns:
     --------
     adata: `~anndata.AnnData` \n
@@ -982,6 +985,11 @@ def return_perturbation_adata(
             for key in rouge_dict.keys():
                 rouge_dict[key] = mean_duplicates(test_obs, rouge_dict[key])
         obsm_dict.update(rouge_dict)
+    if count_gene_names is not None:
+        cos_similarity_df_ = cos_similarity_df_.reindex(count_gene_names)
+        result_gene_names = count_gene_names
+    else:
+        result_gene_names = cos_similarity_df.columns
     varm_dict = {
         'gene_cos_similarity': cos_similarity_df_.values,
     }
@@ -991,7 +999,7 @@ def return_perturbation_adata(
         obsm=obsm_dict,
         varm=varm_dict,
         var=pd.DataFrame(
-            index=cos_similarity_df.columns,
+            index=result_gene_names,
         ),
     )
     if pert_counts is not None:
