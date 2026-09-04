@@ -319,7 +319,7 @@ def get_args(args=None):
     parser.add_argument(
         '--ckpt_every_n_epochs',
         type=int,
-        default=10,
+        default=1,
         help='save checkpoint every n epochs',
     )
     args = parser.parse_args(args)
@@ -563,8 +563,6 @@ def main(argv=None) -> None:
     os.makedirs(os.path.join(os.getcwd(), log_path), exist_ok=True)
 
     # Define Callbacks
-    # This callback always keeps a checkpoint of the best model according to
-    # validation accuracy.
     time_steps_str_ = [str(i) for i in args.pred_tps]
     time_steps_str = '-'.join(time_steps_str_)
     if args.train_mode == 'masking':
@@ -575,9 +573,9 @@ def main(argv=None) -> None:
             f'_tp_{time_steps_str}_s_{args.seed}'
         )
         if val_indices is not None:
-            monitor_metric = 'val/perplexity'
+            monitor_metric = 'val/loss'
         else:
-            monitor_metric = 'train/perplexity'
+            monitor_metric = 'train/masking_loss'
         mode = 'min'
     elif args.train_mode == 'count':
         filename = (
@@ -588,21 +586,26 @@ def main(argv=None) -> None:
             f'{args.seed}_pos_{args.pos_encoding_mode}_m_{args.mask_scheduler}'
         )
         if val_indices:
-            monitor_metric = 'val/mse'
+            monitor_metric = 'val/loss'
             mode = 'min'
         else:
-            monitor_metric = 'train/mse'
+            monitor_metric = 'train/loss'
             mode = 'min'
 
     checkpoint_path = os.path.join(args.output_dir, 'checkpoints')
+    checkpoint_filename = (
+        f'{filename}-epoch_{{epoch:02d}}'
+        f'-loss_{{{monitor_metric}:.12g}}'
+    )
     checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoint_path,
-        filename=f'{filename}-' + '{epoch:02d}',
+        filename=checkpoint_filename,
         save_top_k=-1,
         every_n_epochs=args.ckpt_every_n_epochs,
         verbose=True,
         monitor=monitor_metric,
         mode=mode,
+        auto_insert_metric_name=False,
     )
     # The tensorboard logger allows for monitoring the progress of training
     # Configure WandbLogger with unique name for each run
