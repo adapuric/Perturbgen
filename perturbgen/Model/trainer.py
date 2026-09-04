@@ -425,7 +425,7 @@ class PerturbGenTrainer(LightningModule):
                     mapping_dict=(
                         self.gene_to_rowid if self.gene_to_rowid is not None else None
                     ),
-                    token_ids=token_ids,
+                    token_ids=token_ids[:, cond_length:],
                     marker_genes=self.marker_genes,
                 )
                 self.marker_genes_dict = marker_genes_dict

@@ -654,6 +654,12 @@ def return_gene_embeddings(
     --------
     gene_embeddings_res: `torch.tensor`
     """
+    if tuple(token_ids.shape) != tuple(gene_embeddings.shape[:2]):
+        raise ValueError(
+            'Gene token IDs and embeddings must have matching cell and '
+            f'sequence dimensions; got {tuple(token_ids.shape)} and '
+            f'{tuple(gene_embeddings.shape[:2])}.'
+        )
     marker_genes_ids = exclude_special_tokens(mapping_dict, marker_genes)
     # filter for marker genes and swap key value
     gene_embeddings_res = torch.zeros(

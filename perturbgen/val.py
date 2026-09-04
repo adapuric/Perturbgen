@@ -1,8 +1,10 @@
 import argparse
 import os
+import pickle
 import uuid
 import warnings
 from datetime import datetime
+from itertools import chain
 
 import pytorch_lightning as pl
 import scanpy as sc
@@ -24,6 +26,7 @@ from perturbgen.src.utils import (
     str2bool,
     stratified_split,
 )
+from perturbgen.src.vocabulary import next_available_token_id
 
 os.chdir(ROOT)
 print(f'Current working directory: {os.getcwd()}')
@@ -339,15 +342,22 @@ def main(argv=None) -> None:
     src_dataset = load_from_disk(args.src_dataset)
     src_adata = sc.read_h5ad(args.src_adata)
 
-    # select max input id and max len across all tgt datasets
-    max_tgt_input_id = 0
+    # Select the vocabulary boundary and max length across all target datasets.
     max_len = 0
-    for keys, dataset in tgt_datasets.items():
-        # print max input id
+    for dataset in tgt_datasets.values():
         input_id = dataset['input_ids']
-        max_tgt_input_id = max(max(max(input_id)), max_tgt_input_id)
         max_len = max(max_len, max([len(x) for x in input_id]))
-    max_tgt_input_id = max_tgt_input_id + 1 # add 1 for padding
+    if args.mapping_dict_path is not None:
+        with open(args.mapping_dict_path, 'rb') as mapping_file:
+            reserved_token_ids = pickle.load(mapping_file).keys()
+    else:
+        reserved_token_ids = ()
+    max_tgt_input_id = next_available_token_id(
+        chain.from_iterable(
+            dataset['input_ids'] for dataset in tgt_datasets.values()
+        ),
+        reserved_token_ids=reserved_token_ids,
+    )
     max_len = max(max_len, max([len(x) for x in src_dataset['input_ids']]))
     print(
         f'---PerturbGen training --- \n'
