@@ -25,6 +25,7 @@ from torchmetrics import MeanSquaredError
 from torchmetrics.text import Perplexity
 
 from perturbgen.Modules.transformer import CountDecoder, PerturbGen
+from perturbgen.src.checkpoint import restore_compiled_module_keys
 from perturbgen.src.losses import mse_loss
 from perturbgen.src.metric import (
     compute_distribution_distances,
@@ -571,12 +572,20 @@ class PerturbGenTrainer(LightningModule):
                 print('---Rouge score saved')
 
     def on_save_checkpoint(self, checkpoint):
-        # torch.compile wraps modules under _orig_mod — strip it so checkpoints
-        # are loadable regardless of whether the model was compiled.
+        # Store portable keys without torch.compile's _orig_mod segment;
+        # on_load_checkpoint restores segments required by the current model.
         checkpoint['state_dict'] = {
             k.replace('._orig_mod.', '.'): v
             for k, v in checkpoint['state_dict'].items()
         }
+
+    def on_load_checkpoint(self, checkpoint):
+        # Reconcile portable checkpoint keys with modules wrapped by
+        # torch.compile before Lightning performs its strict state-dict load.
+        restore_compiled_module_keys(
+            checkpoint['state_dict'],
+            self.state_dict().keys(),
+        )
 
 
 class CountDecoderTrainer(LightningModule):
